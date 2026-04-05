@@ -32,12 +32,12 @@ class OnPolicySampler:
         self.rollout_fragment_length = batch_size // env.unwrapped.num_envs
         self.num_envs = env.unwrapped.num_envs
 
-        self.obs_buf = np.zeros((self.num_envs, self.rollout_fragment_length, self.env.obs_dim), dtype=np.float32)
+        self.obs_buf = np.zeros((self.num_envs, self.rollout_fragment_length, *self.env.obs_shape), dtype=self.env.observation_space.dtype)
         self.action_buf = np.zeros((self.num_envs, self.rollout_fragment_length, self.env.act_dim), dtype=np.float32)
         self.reward_buf = np.zeros((self.num_envs, self.rollout_fragment_length), dtype=np.float64)
         self.terminated_buf = np.zeros((self.num_envs, self.rollout_fragment_length), dtype=np.bool_)
         self.truncated_buf = np.zeros((self.num_envs, self.rollout_fragment_length), dtype=np.bool_)
-        self.next_obs_buf = np.zeros((self.num_envs, self.rollout_fragment_length, self.env.obs_dim), dtype=np.float32)
+        self.next_obs_buf = np.zeros((self.num_envs, self.rollout_fragment_length, *self.env.obs_shape), dtype=self.env.observation_space.dtype)
 
         self.obs, _ = self.env.reset()
         self.log = VectorFragmentSampleLog(self.num_envs, self.rollout_fragment_length)
@@ -67,12 +67,12 @@ class OnPolicySampler:
         self.truncated_buf[:, -1] = True
         self.truncated_buf &= ~self.terminated_buf
 
-        obs_buf = self.obs_buf.reshape(-1, self.env.obs_dim)
+        obs_buf = self.obs_buf.reshape(-1, *self.env.obs_shape)
         action_buf = self.action_buf.reshape(-1, self.env.act_dim)
         reward_buf = self.reward_buf.reshape(-1)
         terminated_buf = self.terminated_buf.reshape(-1)
         truncated_buf = self.truncated_buf.reshape(-1)
-        next_obs_buf = self.next_obs_buf.reshape(-1, self.env.obs_dim)
+        next_obs_buf = self.next_obs_buf.reshape(-1, *self.env.obs_shape)
 
         # Compute truncated value
         value_buf = self.algorithm.get_value(obs_buf)

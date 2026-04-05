@@ -20,6 +20,9 @@ def parse_args():
     parser.add_argument("--index", type=str, required=True)
     parser.add_argument("--seed", type=str, required=True)
     parser.add_argument("--descr", type=str, required=True)
+    parser.add_argument("--image_obs", action="store_true", default=False)
+    parser.add_argument("--image_size", type=int, default=84)
+    parser.add_argument("--num_stack", type=int, default=1)
     return parser.parse_args()
 
 def initialize_shm(descr, mode):
@@ -33,9 +36,13 @@ def main():
     seeds = [int(i) for i in args.seed.split(",")]
     assert len(indices) == len(seeds)
 
+    render_mode = "rgb_array" if args.image_obs else None
     envs = []
     for seed in seeds:
-        env = gymnasium.make(args.env)
+        env = gymnasium.make(args.env, render_mode=render_mode)
+        if args.image_obs:
+            from relax.env import _apply_image_wrappers
+            env = _apply_image_wrappers(env, args.image_size, args.num_stack)
         env.reset(seed=seed)
         envs.append(env)
 

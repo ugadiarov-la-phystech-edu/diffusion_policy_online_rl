@@ -13,15 +13,60 @@ Identity: Activation = lambda x: x
 Tanh: Activation = lambda x: jnp.tanh(x)
 
 
+class ResidualBlock(hk.Module):
+    def __init__(self, out_channels: int, stride: int, activation: Activation, name: str = None):
+        super().__init__(name=name)
+        self.out_channels = out_channels
+        self.stride = stride
+        self.activation = activation
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        shortcut = x
+        x = hk.Conv2D(self.out_channels, kernel_shape=3, stride=self.stride, padding="SAME")(x)
+        x = self.activation(x)
+        x = hk.Conv2D(self.out_channels, kernel_shape=3, stride=1, padding="SAME")(x)
+        if shortcut.shape != x.shape:
+            shortcut = hk.Conv2D(self.out_channels, kernel_shape=1, stride=self.stride, padding="SAME")(shortcut)
+        return self.activation(x + shortcut)
+
+
+@dataclass
+@fix_repr
+class ResNet8Encoder(hk.Module):
+    embed_dim: int = 256
+    activation: Activation = jax.nn.relu
+    channels: Tuple[int, ...] = (16, 32, 64)
+    name: str = None
+
+    def __call__(self, obs: jax.Array) -> jax.Array:
+        x = obs.astype(jnp.float32) / 255.0
+        # Layer 1: initial conv
+        x = hk.Conv2D(self.channels[0], kernel_shape=3, stride=2, padding="SAME")(x)
+        x = self.activation(x)
+        # Layers 2-7: three residual blocks (2 conv layers each)
+        for i, ch in enumerate(self.channels):
+            stride = 2 if i > 0 else 1
+            x = ResidualBlock(ch, stride, self.activation)(x)
+        # Global average pooling
+        x = jnp.mean(x, axis=(-3, -2))
+        # Layer 8: linear projection
+        x = hk.Linear(self.embed_dim)(x)
+        x = self.activation(x)
+        return x
+
+
 @dataclass
 @fix_repr
 class ValueNet(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         return mlp(self.hidden_sizes, 1, self.activation, self.output_activation, squeeze_output=True)(obs)
 
 
@@ -31,9 +76,12 @@ class QNet(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         input = jnp.concatenate((obs, act), axis=-1)
         return mlp(self.hidden_sizes, 1, self.activation, self.output_activation, squeeze_output=True)(input)
 
@@ -46,9 +94,12 @@ class DistributionalQNet(hk.Module):
     output_activation: Activation = Identity
     min_log_std: float = -0.1
     max_log_std: float = 4.0
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         input = jnp.concatenate((obs, act), axis=-1)
         value_mean = mlp(self.hidden_sizes, 1, self.activation, self.output_activation, squeeze_output=True)(input)
         value_log_std = mlp(self.hidden_sizes, 1, self.activation, self.output_activation, squeeze_output=True)(input)
@@ -65,9 +116,12 @@ class DistributionalQNet2(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array) -> Tuple[jax.Array, jax.Array]:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         input = jnp.concatenate((obs, act), axis=-1)
         output = mlp(self.hidden_sizes, 2, self.activation, self.output_activation)(input)
         value_mean = output[..., 0]
@@ -85,9 +139,12 @@ class PolicyNet(hk.Module):
     min_log_std: float = -20.0
     max_log_std: float = 0.5
     log_std_mode: Union[str, float] = 'shared'  # shared, separate, global (provide initial value)
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, *, return_log_std: bool = False) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         if self.log_std_mode == 'shared':
             output = mlp(self.hidden_sizes, self.act_dim * 2, self.activation, self.output_activation)(obs)
             mean, log_std = jnp.split(output, 2, axis=-1)
@@ -115,9 +172,12 @@ class PolicyStdNet(hk.Module):
     output_activation: Activation = Tanh
     min_log_std: float = -5.0
     max_log_std: float = 2.0
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         log_std = mlp(self.hidden_sizes, self.act_dim, self.activation, self.output_activation)(obs)
         return self.min_log_std + (log_std + 1) / 2 * (self.max_log_std - self.min_log_std)
 
@@ -129,9 +189,12 @@ class DeterministicPolicyNet(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         return mlp(self.hidden_sizes, self.act_dim, self.activation, self.output_activation)(obs)
 
 
@@ -141,9 +204,12 @@ class ModelNet(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         obs_dim = obs.shape[-1]
         input = jnp.concatenate((obs, act), axis=-1)
         return mlp(self.hidden_sizes, obs_dim, self.activation, self.output_activation)(input)
@@ -155,9 +221,12 @@ class QScoreNet(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         act_dim = act.shape[-1]
         input = jnp.concatenate((obs, act), axis=-1)
         return mlp(self.hidden_sizes, act_dim, self.activation, self.output_activation)(input)
@@ -170,9 +239,12 @@ class DiffusionPolicyNet(hk.Module):
     hidden_sizes: Sequence[int]
     activation: Activation
     output_activation: Activation = Identity
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array, t: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         act_dim = act.shape[-1]
         te = scaled_sinusoidal_encoding(t, dim=self.time_dim, batch_shape=obs.shape[:-1])
         input = jnp.concatenate((obs, act, te), axis=-1)
@@ -185,9 +257,12 @@ class DACERPolicyNet(hk.Module):
     activation: Activation
     output_activation: Activation = Identity
     time_dim: int = 16
+    encoder: Optional[ResNet8Encoder] = None
     name: str = None
 
     def __call__(self, obs: jax.Array, act: jax.Array, t: jax.Array) -> jax.Array:
+        if self.encoder is not None:
+            obs = self.encoder(obs)
         act_dim = act.shape[-1]
         te = scaled_sinusoidal_encoding(t, dim=self.time_dim, batch_shape=obs.shape[:-1])
         te = hk.Linear(self.time_dim * 2)(te)
@@ -195,6 +270,10 @@ class DACERPolicyNet(hk.Module):
         te = hk.Linear(self.time_dim)(te)
         input = jnp.concatenate((obs, act, te), axis=-1)
         return mlp(self.hidden_sizes, act_dim, self.activation, self.output_activation)(input)
+
+def obs_batch_shape(obs: jax.Array, obs_ndim: int) -> Tuple[int, ...]:
+    return obs.shape[:-obs_ndim]
+
 
 def mlp(hidden_sizes: Sequence[int], output_size: int, activation: Activation, output_activation: Activation, *, squeeze_output: bool = False) -> Callable[[jax.Array], jax.Array]:
     layers = []

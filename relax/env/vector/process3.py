@@ -15,7 +15,7 @@ from relax.futex import futex_server_wait, futex_server_notify
 WORKER_PATH = Path(__file__).parent / "worker3.py"
 
 class ProcessVectorEnv(VectorEnv):
-    def __init__(self, name: str, num_envs: int, seed: int, *, num_workers: int = None):
+    def __init__(self, name: str, num_envs: int, seed: int, *, num_workers: int = None, image_obs: bool = False, image_size: int = 84, num_stack: int = 1,):
         if num_workers is None:
             num_workers = num_envs
         else:
@@ -24,17 +24,21 @@ class ProcessVectorEnv(VectorEnv):
         self.num_workers = num_workers
         self.env_per_worker = num_envs // num_workers
 
-        dummy_env = gymnasium.make(name)
+        render_mode = "rgb_array" if image_obs else None
+        dummy_env = gymnasium.make(name, render_mode=render_mode)
+        if image_obs:
+            from relax.env import _apply_image_wrappers
+            dummy_env = _apply_image_wrappers(dummy_env, image_size, num_stack)
         self.single_observation_space = dummy_env.observation_space
         self.single_action_space = dummy_env.action_space
         dummy_env.close()
 
         self.spec = dummy_env.unwrapped.spec
 
-        assert isinstance(self.single_observation_space, Box) and len(self.single_observation_space.shape) == 1
+        assert isinstance(self.single_observation_space, Box)
         assert isinstance(self.single_action_space, Box) and len(self.single_action_space.shape) == 1 and self.single_action_space.is_bounded()
 
-        self.obs_dim = self.single_observation_space.shape[0]
+        self.obs_shape = self.single_observation_space.shape
         self.act_dim = self.single_action_space.shape[0]
 
         def b(x):
@@ -43,7 +47,7 @@ class ProcessVectorEnv(VectorEnv):
         self.observation_space = Box(
             low=b(self.single_observation_space.low),
             high=b(self.single_observation_space.high),
-            shape=(self.num_envs, self.obs_dim),
+            shape=(self.num_envs, *self.obs_shape),
             dtype=self.single_observation_space.dtype,
         )
 
@@ -68,8 +72,9 @@ class ProcessVectorEnv(VectorEnv):
             return shm, arr, descr
 
         descr = {}
-        self.obs_shm, self.obs, descr["obs"] = make_shared_memory((self.num_envs, self.obs_dim), np.float32)
-        self.obs2_shm, self.obs2, descr["obs2"] = make_shared_memory((self.num_envs, self.obs_dim), np.float32)
+        obs_dtype = self.single_observation_space.dtype
+        self.obs_shm, self.obs, descr["obs"] = make_shared_memory((self.num_envs, *self.obs_shape), obs_dtype)
+        self.obs2_shm, self.obs2, descr["obs2"] = make_shared_memory((self.num_envs, *self.obs_shape), obs_dtype)
         self.action_shm, self.action, descr["action"] = make_shared_memory((self.num_envs, self.act_dim), np.float32)
         self.reward_shm, self.reward, descr["reward"] = make_shared_memory((self.num_envs,), np.float64)
         self.terminated_shm, self.terminated, descr["terminated"] = make_shared_memory((self.num_envs,), np.bool_)
@@ -81,15 +86,19 @@ class ProcessVectorEnv(VectorEnv):
 
         def create_worker(i: int, seeds: list):
             index = [i * self.env_per_worker + j for j in range(self.env_per_worker)]
+            cmd = [
+                sys.executable,
+                str(WORKER_PATH),
+                "--env", name,
+                "--index", ",".join(map(str, index)),
+                "--seed", ",".join(str(seeds[j]) for j in index),
+                "--descr", json.dumps(descr),
+                "--num_stack", str(num_stack),
+            ]
+            if image_obs:
+                cmd += ["--image_obs", "--image_size", str(image_size)]
             child = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(WORKER_PATH),
-                    "--env", name,
-                    "--index", ",".join(map(str, index)),
-                    "--seed", ",".join(str(seeds[j]) for j in index),
-                    "--descr", json.dumps(descr),
-                ],
+                cmd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
             )

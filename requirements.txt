@@ -21,3 +21,4 @@ scikit-learn
 tqdm
 setproctitle
 pyyaml
+lz4

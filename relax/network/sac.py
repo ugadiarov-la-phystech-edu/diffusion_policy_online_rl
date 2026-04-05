@@ -4,7 +4,7 @@ from typing import Callable, NamedTuple, Sequence, Tuple
 import jax, jax.numpy as jnp
 import haiku as hk
 
-from relax.network.blocks import Activation, QNet, PolicyNet
+from relax.network.blocks import Activation, QNet, PolicyNet, ResNet8Encoder
 from relax.network.common import WithSquashedGaussianPolicy
 
 
@@ -25,13 +25,18 @@ class SACNet(WithSquashedGaussianPolicy):
 
 def create_sac_net(
     key: jax.Array,
-    obs_dim: int,
+    obs_shape,
     act_dim: int,
     hidden_sizes: Sequence[int],
     activation: Activation = jax.nn.relu,
 ) -> Tuple[SACNet, SACParams]:
-    q = hk.without_apply_rng(hk.transform(lambda obs, act: QNet(hidden_sizes, activation)(obs, act)))
-    policy = hk.without_apply_rng(hk.transform(lambda obs: PolicyNet(act_dim, hidden_sizes, activation)(obs)))
+    if isinstance(obs_shape, int):
+        obs_shape = (obs_shape,)
+    is_image = len(obs_shape) == 3
+    def make_encoder():
+        return ResNet8Encoder(activation=activation) if is_image else None
+    q = hk.without_apply_rng(hk.transform(lambda obs, act: QNet(hidden_sizes, activation, encoder=make_encoder())(obs, act)))
+    policy = hk.without_apply_rng(hk.transform(lambda obs: PolicyNet(act_dim, hidden_sizes, activation, encoder=make_encoder())(obs)))
 
     @jax.jit
     def init(key, obs, act):
@@ -44,7 +49,7 @@ def create_sac_net(
         log_alpha = jnp.array(1.0, dtype=jnp.float32)
         return SACParams(q1_params, q2_params, target_q1_params, target_q2_params, policy_params, log_alpha)
 
-    sample_obs = jnp.zeros((1, obs_dim))
+    sample_obs = jnp.zeros((1, *obs_shape))
     sample_act = jnp.zeros((1, act_dim))
     params = init(key, sample_obs, sample_act)
 

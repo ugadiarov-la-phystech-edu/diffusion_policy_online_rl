@@ -5,7 +5,7 @@ import jax, jax.numpy as jnp
 import haiku as hk
 import math
 
-from relax.network.blocks import Activation, DistributionalQNet2, DACERPolicyNet, QNet
+from relax.network.blocks import Activation, DistributionalQNet2, DACERPolicyNet, QNet, ResNet8Encoder, obs_batch_shape
 from relax.network.common import WithSquashedGaussianPolicy
 from relax.utils.diffusion import GaussianDiffusion
 from relax.utils.jax_utils import random_key_from_data
@@ -26,6 +26,7 @@ class DACERDoubleQNet:
     num_timesteps: int
     act_dim: int
     target_entropy: float
+    obs_ndim: int = 1
 
     @property
     def diffusion(self) -> GaussianDiffusion:
@@ -38,7 +39,7 @@ class DACERDoubleQNet:
             return self.policy(policy_params, obs, x, t)
 
         key, noise_key = jax.random.split(key)
-        action = self.diffusion.p_sample(key, model_fn, (*obs.shape[:-1], self.act_dim))
+        action = self.diffusion.p_sample(key, model_fn, (*obs_batch_shape(obs, self.obs_ndim), self.act_dim))
         action = action + jax.random.normal(noise_key, action.shape) * jnp.exp(log_alpha) * 0.15 # other envs 0.1
         return action.clip(-1, 1)
 
@@ -60,16 +61,21 @@ class DACERDoubleQNet:
 
 def create_dacer_doubleq_net(
     key: jax.Array,
-    obs_dim: int,
+    obs_shape,
     act_dim: int,
     hidden_sizes: Sequence[int],
     diffusion_hidden_sizes: Sequence[int],
     activation: Activation = jax.nn.relu,
     num_timesteps: int = 20,
 ) -> Tuple[DACERDoubleQNet, DACERDoubleQParams]:
-    # q = hk.without_apply_rng(hk.transform(lambda obs, act: DistributionalQNet2(hidden_sizes, activation)(obs, act)))
-    q = hk.without_apply_rng(hk.transform(lambda obs, act: QNet(hidden_sizes, activation)(obs, act)))
-    policy = hk.without_apply_rng(hk.transform(lambda obs, act, t: DACERPolicyNet(diffusion_hidden_sizes, activation)(obs, act, t)))
+    if isinstance(obs_shape, int):
+        obs_shape = (obs_shape,)
+    is_image = len(obs_shape) == 3
+    def make_encoder():
+        return ResNet8Encoder(activation=activation) if is_image else None
+    # q = hk.without_apply_rng(hk.transform(lambda obs, act: DistributionalQNet2(hidden_sizes, activation, encoder=make_encoder())(obs, act)))
+    q = hk.without_apply_rng(hk.transform(lambda obs, act: QNet(hidden_sizes, activation, encoder=make_encoder())(obs, act)))
+    policy = hk.without_apply_rng(hk.transform(lambda obs, act, t: DACERPolicyNet(diffusion_hidden_sizes, activation, encoder=make_encoder())(obs, act, t)))
 
     @jax.jit
     def init(key, obs, act):
@@ -82,9 +88,9 @@ def create_dacer_doubleq_net(
         log_alpha = jnp.array(math.log(3), dtype=jnp.float32) # math.log(3) or math.log(5) choose one
         return DACERDoubleQParams(q1_params, q2_params, target_q1_params, target_q2_params, policy_params, log_alpha)
 
-    sample_obs = jnp.zeros((1, obs_dim))
+    sample_obs = jnp.zeros((1, *obs_shape))
     sample_act = jnp.zeros((1, act_dim))
     params = init(key, sample_obs, sample_act)
 
-    net = DACERDoubleQNet(q=q.apply, policy=policy.apply, num_timesteps=num_timesteps, act_dim=act_dim, target_entropy=-act_dim*0.9)
+    net = DACERDoubleQNet(q=q.apply, policy=policy.apply, num_timesteps=num_timesteps, act_dim=act_dim, target_entropy=-act_dim*0.9, obs_ndim=len(obs_shape))
     return net, params

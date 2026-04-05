@@ -17,6 +17,9 @@ def parse_args():
     parser.add_argument("--index", type=int, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--descr", type=str, required=True)
+    parser.add_argument("--image_obs", action="store_true", default=False)
+    parser.add_argument("--image_size", type=int, default=84)
+    parser.add_argument("--num_stack", type=int, default=1)
     return parser.parse_args()
 
 def initialize_shm(descr, mode):
@@ -26,7 +29,11 @@ def initialize_shm(descr, mode):
 def main():
     args = parse_args()
 
-    env = gymnasium.make(args.env)
+    render_mode = "rgb_array" if args.image_obs else None
+    env = gymnasium.make(args.env, render_mode=render_mode)
+    if args.image_obs:
+        from relax.env import _apply_image_wrappers
+        env = _apply_image_wrappers(env, args.image_size, args.num_stack)
     env.reset(seed=args.seed)
 
     i = args.index

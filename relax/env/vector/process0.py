@@ -8,17 +8,25 @@ from relax.env.vector.base import VectorEnv
 
 
 class ProcessVectorEnv(VectorEnv):
-    def __init__(self, name: str, num_envs: int, seed: int):
-        self.inner = AsyncVectorEnv([lambda: gymnasium.make(name) for _ in range(num_envs)])
+    def __init__(self, name: str, num_envs: int, seed: int, image_obs: bool = False, image_size: int = 84, num_stack: int = 1,):
+        def make_env():
+            render_mode = "rgb_array" if image_obs else None
+            env = gymnasium.make(name, render_mode=render_mode)
+            if image_obs:
+                from relax.env import _apply_image_wrappers
+                env = _apply_image_wrappers(env, image_size, num_stack)
+            return env
+
+        self.inner = AsyncVectorEnv([make_env for _ in range(num_envs)])
         self.num_envs = num_envs
 
         self.single_observation_space = self.inner.single_observation_space
         self.single_action_space = self.inner.single_action_space
 
-        assert isinstance(self.single_observation_space, Box) and len(self.single_observation_space.shape) == 1
+        assert isinstance(self.single_observation_space, Box)
         assert isinstance(self.single_action_space, Box) and len(self.single_action_space.shape) == 1 and self.single_action_space.is_bounded()
 
-        self.obs_dim = self.single_observation_space.shape[0]
+        self.obs_shape = self.single_observation_space.shape
         self.act_dim = self.single_action_space.shape[0]
 
         def b(x):
@@ -27,7 +35,7 @@ class ProcessVectorEnv(VectorEnv):
         self.observation_space = Box(
             low=b(self.single_observation_space.low),
             high=b(self.single_observation_space.high),
-            shape=(self.num_envs, self.obs_dim),
+            shape=(self.num_envs, *self.obs_shape),
             dtype=self.single_observation_space.dtype,
         )
 

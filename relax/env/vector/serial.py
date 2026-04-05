@@ -7,22 +7,31 @@ from relax.env.vector.base import VectorEnv
 
 
 class SerialVectorEnv(VectorEnv):
-    def __init__(self, name: str, num_envs: int, seed: int):
+    def __init__(self, name: str, num_envs: int, seed: int, image_obs: bool = False, image_size: int = 84, num_stack: int = 1,):
         assert num_envs > 0
 
         self.num_envs = num_envs
-        self.envs = [gymnasium.make(name) for _ in range(num_envs)]
+
+        def make_env():
+            render_mode = "rgb_array" if image_obs else None
+            env = gymnasium.make(name, render_mode=render_mode)
+            if image_obs:
+                from relax.env import _apply_image_wrappers
+                env = _apply_image_wrappers(env, image_size, num_stack)
+            return env
+
+        self.envs = [make_env() for _ in range(num_envs)]
 
         self.single_observation_space = self.envs[0].observation_space
         self.single_action_space = self.envs[0].action_space
 
-        assert isinstance(self.single_observation_space, Box) and len(self.single_observation_space.shape) == 1
+        assert isinstance(self.single_observation_space, Box)
         assert isinstance(self.single_action_space, Box) and len(self.single_action_space.shape) == 1 and self.single_action_space.is_bounded()
         for env in self.envs:
             assert env.observation_space == self.single_observation_space
             assert env.action_space == self.single_action_space
 
-        self.obs_dim = self.single_observation_space.shape[0]
+        self.obs_shape = self.single_observation_space.shape
         self.act_dim = self.single_action_space.shape[0]
 
         def b(x):
@@ -31,7 +40,7 @@ class SerialVectorEnv(VectorEnv):
         self.observation_space = Box(
             low=b(self.single_observation_space.low),
             high=b(self.single_observation_space.high),
-            shape=(self.num_envs, self.obs_dim),
+            shape=(self.num_envs, *self.obs_shape),
             dtype=self.single_observation_space.dtype,
         )
         self.action_space = Box(
@@ -41,7 +50,7 @@ class SerialVectorEnv(VectorEnv):
             dtype=self.single_action_space.dtype,
         )
 
-        self._observation = np.zeros((self.num_envs, self.obs_dim), dtype=np.float32)
+        self._observation = np.zeros((self.num_envs, *self.obs_shape), dtype=self.single_observation_space.dtype)
         self._reward = np.zeros((self.num_envs,), dtype=np.float64)
         self._termination = np.zeros((self.num_envs,), dtype=np.bool_)
         self._truncation = np.zeros((self.num_envs,), dtype=np.bool_)

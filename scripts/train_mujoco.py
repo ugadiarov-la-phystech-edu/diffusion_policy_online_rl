@@ -54,11 +54,14 @@ if __name__ == "__main__":
     parser.add_argument("--noise_scale", type=float, default=0.1)
     parser.add_argument("--cluster", default=False, action="store_true")
     parser.add_argument("--debug", action='store_true', default=False)
+    parser.add_argument("--image_obs", action='store_true', default=False)
+    parser.add_argument("--image_size", type=int, default=84)
     parser.add_argument("--beta_schedule_scale", type=float, default=0.8)
     parser.add_argument("--beta_schedule_type", type=str, default='linear')
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--save_policy_every", type=int, default=10000)
     parser.add_argument("--evaluate_n_episode", type=int, default=20)
+    parser.add_argument("--num_stack", type=int, default=1)
     args = parser.parse_args()
 
     if args.debug:
@@ -75,15 +78,21 @@ if __name__ == "__main__":
     del init_network_seed, train_seed
 
     if args.num_vec_envs > 0:
-        env, obs_dim, act_dim = create_vector_env(args.env, args.num_vec_envs, env_seed, env_action_seed, mode="futex")
+        env, obs_shape, act_dim = create_vector_env(args.env, args.num_vec_envs, env_seed, env_action_seed,
+                                                    mode="futex", image_obs=args.image_obs, image_size=args.image_size,
+                                                    num_stack=args.num_stack)
     else:
-        env, obs_dim, act_dim = create_env(args.env, env_seed, env_action_seed)
+        env, obs_shape, act_dim = create_env(args.env, env_seed, env_action_seed, image_obs=args.image_obs,
+                                             image_size=args.image_size, num_stack=args.num_stack)
     eval_env = None
+
+    import numpy as np
+    obs_dtype = np.uint8 if args.image_obs else np.float32
 
     hidden_sizes = [args.hidden_dim] * args.hidden_num
     diffusion_hidden_sizes = [args.diffusion_hidden_dim] * args.hidden_num
 
-    buffer = TreeBuffer.from_experience(obs_dim, act_dim, size=int(1e6), seed=buffer_seed)
+    buffer = TreeBuffer.from_experience(obs_shape, act_dim, size=int(1e6), seed=buffer_seed, obs_dtype=obs_dtype)
 
     gelu = partial(jax.nn.gelu, approximate=False)
     
@@ -92,7 +101,7 @@ if __name__ == "__main__":
     if args.alg == 'sdac':
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
-        agent, params = create_diffv2_net(init_network_key, obs_dim, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
+        agent, params = create_diffv2_net(init_network_key, obs_shape, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
                                           num_timesteps=args.diffusion_steps, 
                                           num_particles=args.num_particles, 
                                           noise_scale=args.noise_scale,
@@ -102,7 +111,7 @@ if __name__ == "__main__":
     elif args.alg == 'dpmd':
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
-        agent, params = create_diffv2_net(init_network_key, obs_dim, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
+        agent, params = create_diffv2_net(init_network_key, obs_shape, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
                                           num_timesteps=args.diffusion_steps, 
                                           num_particles=args.num_particles, 
                                           noise_scale=args.noise_scale,
@@ -112,35 +121,35 @@ if __name__ == "__main__":
     elif args.alg == 'idem':
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
-        agent, params = create_diffv2_net(init_network_key, obs_dim, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
+        agent, params = create_diffv2_net(init_network_key, obs_shape, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
                                           num_timesteps=args.diffusion_steps, 
                                           num_particles=args.num_particles, 
                                           noise_scale=args.noise_scale,
                                           beta_schedule_scale=args.beta_schedule_scale)
         algorithm = IDEM(agent, params, lr=args.lr, alpha_lr=args.alpha_lr, delay_alpha_update=args.delay_alpha_update, lr_schedule_end=args.lr_schedule_end)
     elif args.alg == "qsm":
-        agent, params = create_qsm_net(init_network_key, obs_dim, act_dim, hidden_sizes, num_timesteps=20, num_particles=args.num_particles)
+        agent, params = create_qsm_net(init_network_key, obs_shape, act_dim, hidden_sizes, num_timesteps=20, num_particles=args.num_particles)
         algorithm = QSM(agent, params, lr=args.lr, lr_schedule_end=args.lr_schedule_end)
     elif args.alg == "sac":
-        agent, params = create_sac_net(init_network_key, obs_dim, act_dim, hidden_sizes, gelu)
+        agent, params = create_sac_net(init_network_key, obs_shape, act_dim, hidden_sizes, gelu)
         algorithm = SAC(agent, params, lr=args.lr)
     elif args.alg == "dsact":
-        agent, params = create_dsact_net(init_network_key, obs_dim, act_dim, hidden_sizes, gelu)
+        agent, params = create_dsact_net(init_network_key, obs_shape, act_dim, hidden_sizes, gelu)
         algorithm = DSACT(agent, params, lr=args.lr)
     elif args.alg == "dacer":
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
-        agent, params = create_dacer_net(init_network_key, obs_dim, act_dim, hidden_sizes, diffusion_hidden_sizes, mish, 
+        agent, params = create_dacer_net(init_network_key, obs_shape, act_dim, hidden_sizes, diffusion_hidden_sizes, mish, 
                                          num_timesteps=args.diffusion_steps)
         algorithm = DACER(agent, params, lr=args.lr, lr_schedule_end=args.lr_schedule_end)
     elif args.alg == "dacer_doubleq":
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
-        agent, params = create_dacer_doubleq_net(init_network_key, obs_dim, act_dim, hidden_sizes, diffusion_hidden_sizes, mish, num_timesteps=args.diffusion_steps)
+        agent, params = create_dacer_doubleq_net(init_network_key, obs_shape, act_dim, hidden_sizes, diffusion_hidden_sizes, mish, num_timesteps=args.diffusion_steps)
         algorithm = DACERDoubleQ(agent, params, lr=args.lr)
     elif args.alg == "dipo":
         diffusion_buffer = TreeBuffer.from_example(
-            ObsActionPair.create_example(obs_dim, act_dim),
+            ObsActionPair.create_example(obs_shape, act_dim, obs_dtype=obs_dtype),
             args.total_step,
             int(master_rng.integers(0, 2**32 - 1)),
             remove_batch_dim=False
@@ -150,12 +159,12 @@ if __name__ == "__main__":
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
 
-        agent, params = create_dipo_net(init_network_key, obs_dim, act_dim, hidden_sizes, num_timesteps=100)
+        agent, params = create_dipo_net(init_network_key, obs_shape, act_dim, hidden_sizes, num_timesteps=100)
         algorithm = DIPO(agent, params, diffusion_buffer, lr=args.lr, action_gradient_steps=30, policy_target_delay=2, action_grad_norm=0.16)
     elif args.alg == "qvpo":
         def mish(x: jax.Array):
             return x * jnp.tanh(jax.nn.softplus(x))
-        agent, params = create_qvpo_net(init_network_key, obs_dim, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
+        agent, params = create_qvpo_net(init_network_key, obs_shape, act_dim, hidden_sizes, diffusion_hidden_sizes, mish,
                                           num_timesteps=args.diffusion_steps,
                                           num_particles=args.num_particles,
                                           noise_scale=args.noise_scale)
@@ -181,9 +190,11 @@ if __name__ == "__main__":
         update_log_n_step=1 if args.debug else 1000,
         batch_size=args.batch_size,
         evaluate_n_episode=args.evaluate_n_episode,
+        image_obs=args.image_obs,
+        image_size=args.image_size,
     )
 
-    trainer.setup(Experience.create_example(obs_dim, act_dim, trainer.batch_size))
+    trainer.setup(Experience.create_example(obs_shape, act_dim, trainer.batch_size, obs_dtype=obs_dtype))
     log_git_details(log_file=os.path.join(exp_dir, 'dacer.diff'))
     
     # Save the arguments to a YAML file

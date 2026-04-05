@@ -110,8 +110,13 @@ class TreeBuffer(Buffer[T]):
         return TreeBuffer(spec, size, seed)
 
     @staticmethod
-    def from_experience(obs_dim: int, act_dim: int, size: int, seed: int = 0) -> "TreeBuffer[Experience]":
-        example = Experience.create_example(obs_dim, act_dim)
+    def from_experience(obs_shape, act_dim: int, size: int, seed: int = 0, obs_dtype=None) -> "TreeBuffer[Experience]":
+        import numpy as np
+        if isinstance(obs_shape, int):
+            obs_shape = (obs_shape,)
+        if obs_dtype is None:
+            obs_dtype = np.float32
+        example = Experience.create_example(obs_shape, act_dim, obs_dtype=obs_dtype)
         return TreeBuffer.from_example(example, size, seed, remove_batch_dim=False)
 
     @staticmethod

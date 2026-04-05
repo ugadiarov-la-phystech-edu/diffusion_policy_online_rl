@@ -42,6 +42,8 @@ class OffPolicyTrainer:
         hparams: Optional[dict] = None,
         policy_pkl_template: str = "policy-{sample_step}-{update_step}.pkl",
         warmup_with: str = "random",  # "policy" or "random"
+        image_obs: bool = False,
+        image_size: int = 84,
     ):
         self.env = env
         self.algorithm = algorithm
@@ -63,6 +65,8 @@ class OffPolicyTrainer:
         self.hparams = hparams
         self.warmup_with = warmup_with
         self.save_value = save_value
+        self.image_obs = image_obs
+        self.image_size = image_size
         # TODO: make EpisodeLog and Experience configurable
         # TODO: re-add done_info_keys support
         # TODO: re-add evaluation support
@@ -101,15 +105,18 @@ class OffPolicyTrainer:
         self.algorithm.save_policy_structure(self.log_path, dummy_data.obs[0])
         if self.save_value:
             self.algorithm.save_q_structure(self.log_path, dummy_obs=dummy_data.obs[0], dummy_action=dummy_data.action[0])
+        evaluator_cmd = [
+            sys.executable,
+            "-m", "relax.trainer.evaluator",
+            str(self.log_path),
+            "--env", self.env.spec.id,
+            "--num_episodes", str(self.evaluate_n_episode),
+            "--seed", str(0),
+        ]
+        if self.image_obs:
+            evaluator_cmd += ["--image_obs", "--image_size", str(self.image_size)]
         self.evaluator = subprocess.Popen(
-            [
-                sys.executable,
-                "-m", "relax.trainer.evaluator",
-                str(self.log_path),
-                "--env", self.env.spec.id,
-                "--num_episodes", str(self.evaluate_n_episode),
-                "--seed", str(0),
-            ],
+            evaluator_cmd,
             stdin=subprocess.PIPE,
             bufsize=0,
         )

@@ -4,7 +4,7 @@ from typing import Callable, NamedTuple, Optional, Sequence, Tuple
 import jax, jax.numpy as jnp
 import haiku as hk
 
-from relax.network.blocks import Activation, QNet, QScoreNet
+from relax.network.blocks import Activation, QNet, QScoreNet, ResNet8Encoder, obs_batch_shape
 from relax.utils.langevin import LangevinDynamics
 
 
@@ -22,6 +22,7 @@ class QSMv2Net:
     q_score: Callable[[hk.Params, jax.Array, jax.Array], jax.Array]
     num_timesteps: int
     act_dim: int
+    obs_ndim: int = 1
     num_particles: int = 1
 
     def get_action(self, key: jax.Array, policy_params: hk.Params, obs: jax.Array, *, num_particles: Optional[int] = None) -> jax.Array:
@@ -31,7 +32,7 @@ class QSMv2Net:
             return self.q_score(score_params, obs, x)
 
         def sample(key):
-            act = langevin.sample(key, model_fn, (*obs.shape[:-1], self.act_dim))
+            act = langevin.sample(key, model_fn, (*obs_batch_shape(obs, self.obs_ndim), self.act_dim))
             q1 = self.q(q1_params, obs, act)
             q2 = self.q(q2_params, obs, act)
             q = jnp.minimum(q1, q2)
@@ -40,7 +41,7 @@ class QSMv2Net:
         num_particles = num_particles if num_particles is not None else self.num_particles
         assert num_particles > 0
         if num_particles == 1:
-            act = langevin.sample(key, model_fn, (*obs.shape[:-1], self.act_dim))
+            act = langevin.sample(key, model_fn, (*obs_batch_shape(obs, self.obs_ndim), self.act_dim))
         else:
             keys = jax.random.split(key, num_particles)
             acts, qs = jax.vmap(sample)(keys)
@@ -62,15 +63,20 @@ class QSMv2Net:
 
 def create_qsmv2_net(
     key: jax.Array,
-    obs_dim: int,
+    obs_shape,
     act_dim: int,
     hidden_sizes: Sequence[int],
     activation: Activation = jax.nn.relu,
     num_timesteps: int = 100,
     num_particles: int = 1,
 ) -> Tuple[QSMv2Net, QSMParams]:
-    q = hk.without_apply_rng(hk.transform(lambda obs, act: QNet(hidden_sizes, activation)(obs, act)))
-    q_score = hk.without_apply_rng(hk.transform(lambda obs, act: QScoreNet(hidden_sizes, activation)(obs, act)))
+    if isinstance(obs_shape, int):
+        obs_shape = (obs_shape,)
+    is_image = len(obs_shape) == 3
+    def make_encoder():
+        return ResNet8Encoder(activation=activation) if is_image else None
+    q = hk.without_apply_rng(hk.transform(lambda obs, act: QNet(hidden_sizes, activation, encoder=make_encoder())(obs, act)))
+    q_score = hk.without_apply_rng(hk.transform(lambda obs, act: QScoreNet(hidden_sizes, activation, encoder=make_encoder())(obs, act)))
 
     @jax.jit
     def init(key, obs, act):
@@ -82,9 +88,9 @@ def create_qsmv2_net(
         q_score_params = q_score.init(q_score_key, obs, act)
         return QSMParams(q1_params, q2_params, target_q1_params, target_q2_params, q_score_params)
 
-    sample_obs = jnp.zeros((1, obs_dim))
+    sample_obs = jnp.zeros((1, *obs_shape))
     sample_act = jnp.zeros((1, act_dim))
     params = init(key, sample_obs, sample_act)
 
-    net = QSMv2Net(q=q.apply, q_score=q_score.apply, num_timesteps=num_timesteps, act_dim=act_dim, num_particles=num_particles)
+    net = QSMv2Net(q=q.apply, q_score=q_score.apply, num_timesteps=num_timesteps, act_dim=act_dim, obs_ndim=len(obs_shape), num_particles=num_particles)
     return net, params

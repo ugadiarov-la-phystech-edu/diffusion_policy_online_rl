@@ -52,11 +52,15 @@ if __name__ == "__main__":
     parser.add_argument("--env", type=str, required=True)
     parser.add_argument("--num_episodes", type=int, required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--image_obs", action="store_true", default=False)
+    parser.add_argument("--image_size", type=int, default=84)
+    parser.add_argument("--num_stack", type=int, default=1)
     args = parser.parse_args()
 
     master_rng = np.random.default_rng(args.seed)
     env_seed, env_action_seed, policy_seed = map(int, master_rng.integers(0, 2**32 - 1, 3))
-    env, _, _ = create_env(args.env, env_seed, env_action_seed)
+    env, _, _ = create_env(args.env, env_seed, env_action_seed, image_obs=args.image_obs, image_size=args.image_size,
+                           num_stack=args.num_stack)
 
     policy = PersistFunction.load(args.policy_root / "deterministic.pkl")
     @jax.jit

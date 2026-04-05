@@ -28,13 +28,15 @@ class Experience(NamedTuple):
         return f"Experience(size={self.batch_size()})"
 
     @staticmethod
-    def create_example(obs_dim: int, action_dim: int, batch_size: Optional[int] = None):
+    def create_example(obs_shape, action_dim: int, batch_size: Optional[int] = None, obs_dtype=np.float32):
+        if isinstance(obs_shape, int):
+            obs_shape = (obs_shape,)
         leading_dims = (batch_size,) if batch_size is not None else ()
         return Experience(
-            obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             action=np.zeros((*leading_dims, action_dim), dtype=np.float32),
             reward=np.zeros(leading_dims, dtype=np.float32),
-            next_obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            next_obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             done=np.zeros(leading_dims, dtype=np.bool_),
         )
 
@@ -58,13 +60,15 @@ class GAEExperience(NamedTuple):
         return f"GAEExperience(size={self.batch_size()})"
 
     @staticmethod
-    def create_example(obs_dim: int, action_dim: int, batch_size: Optional[int] = None):
+    def create_example(obs_shape, action_dim: int, batch_size: Optional[int] = None, obs_dtype=np.float32):
+        if isinstance(obs_shape, int):
+            obs_shape = (obs_shape,)
         leading_dims = (batch_size,) if batch_size is not None else ()
         return GAEExperience(
-            obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             action=np.zeros((*leading_dims, action_dim), dtype=np.float32),
             reward=np.zeros(leading_dims, dtype=np.float32),
-            next_obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            next_obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             done=np.zeros(leading_dims, dtype=np.bool_),
             ret=np.zeros(leading_dims, dtype=np.float32),
             adv=np.zeros(leading_dims, dtype=np.float32),
@@ -95,14 +99,16 @@ class SafeExperience(NamedTuple):
         return f"SafeExperience(size={self.batch_size()})"
 
     @staticmethod
-    def create_example(obs_dim: int, action_dim: int, batch_size: Optional[int] = None):
+    def create_example(obs_shape, action_dim: int, batch_size: Optional[int] = None, obs_dtype=np.float32):
+        if isinstance(obs_shape, int):
+            obs_shape = (obs_shape,)
         leading_dims = (batch_size,) if batch_size is not None else ()
         return SafeExperience(
-            obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             action=np.zeros((*leading_dims, action_dim), dtype=np.float32),
             reward=np.zeros(leading_dims, dtype=np.float32),
             done=np.zeros(leading_dims, dtype=np.bool_),
-            next_obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            next_obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             cost=np.zeros(leading_dims, dtype=np.float32),
             feasible=np.zeros(leading_dims, dtype=np.bool_),
             infeasible=np.zeros(leading_dims, dtype=np.bool_),
@@ -135,9 +141,11 @@ class ObsActionPair(NamedTuple):
     action: "jax.Array"
 
     @staticmethod
-    def create_example(obs_dim: int, action_dim: int, batch_size: Optional[int] = None):
+    def create_example(obs_shape, action_dim: int, batch_size: Optional[int] = None, obs_dtype=np.float32):
+        if isinstance(obs_shape, int):
+            obs_shape = (obs_shape,)
         leading_dims = (batch_size,) if batch_size is not None else ()
         return ObsActionPair(
-            obs=np.zeros((*leading_dims, obs_dim), dtype=np.float32),
+            obs=np.zeros((*leading_dims, *obs_shape), dtype=obs_dtype),
             action=np.zeros((*leading_dims, action_dim), dtype=np.float32),
         )
