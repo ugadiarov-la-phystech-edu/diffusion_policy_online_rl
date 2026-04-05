@@ -56,6 +56,9 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action='store_true', default=False)
     parser.add_argument("--beta_schedule_scale", type=float, default=0.8)
     parser.add_argument("--beta_schedule_type", type=str, default='linear')
+    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument("--save_policy_every", type=int, default=10000)
+    parser.add_argument("--evaluate_n_episode", type=int, default=20)
     args = parser.parse_args()
 
     if args.debug:
@@ -172,10 +175,12 @@ if __name__ == "__main__":
         total_step=args.total_step,
         sample_per_iteration=1,
         evaluate_env=eval_env,
-        save_policy_every=int(args.total_step / 20),
+        save_policy_every=args.save_policy_every,
         warmup_with="random",
         log_path=exp_dir,
         update_log_n_step=1 if args.debug else 1000,
+        batch_size=args.batch_size,
+        evaluate_n_episode=args.evaluate_n_episode,
     )
 
     trainer.setup(Experience.create_example(obs_dim, act_dim, trainer.batch_size))

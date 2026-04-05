@@ -1,6 +1,7 @@
 # Fundamental
 # numpy
 # jax  # See document for installation
+jax==0.4.27
 optax
 dm-haiku
 numpyro
@@ -9,6 +10,7 @@ tensorboardX
 ipdb
 
 # Used by environment
+# mujoco==3.3.7
 gymnasium[mujoco]==1.0.0
 dill==0.3.8
 # free-mujoco-py
@@ -18,3 +20,4 @@ scikit-learn
 # Utility
 tqdm
 setproctitle
+pyyaml
