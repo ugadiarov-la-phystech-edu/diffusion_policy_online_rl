@@ -17,7 +17,7 @@ from relax.algorithm.qvpo import QVPO
 from relax.algorithm.sdac import SDAC
 from relax.algorithm.dpmd import DPMD
 from relax.algorithm.idem import IDEM
-from relax.buffer import TreeBuffer
+from relax.buffer import TreeBuffer, FrameStackBuffer
 from relax.network.sac import create_sac_net
 from relax.network.dsact import create_dsact_net
 from relax.network.dacer import create_dacer_net
@@ -92,7 +92,16 @@ if __name__ == "__main__":
     hidden_sizes = [args.hidden_dim] * args.hidden_num
     diffusion_hidden_sizes = [args.diffusion_hidden_dim] * args.hidden_num
 
-    buffer = TreeBuffer.from_experience(obs_shape, act_dim, size=int(1e6), seed=buffer_seed, obs_dtype=obs_dtype)
+    if args.image_obs and args.num_stack > 1:
+        num_envs = args.num_vec_envs if args.num_vec_envs > 0 else 1
+        single_frame_shape = (args.image_size, args.image_size, 3)
+        buffer = FrameStackBuffer.create(
+            frame_shape=single_frame_shape, act_dim=act_dim,
+            num_stack=args.num_stack, num_envs=num_envs,
+            capacity=int(1e6), seed=buffer_seed,
+        )
+    else:
+        buffer = TreeBuffer.from_experience(obs_shape, act_dim, size=int(1e6), seed=buffer_seed, obs_dtype=obs_dtype)
 
     gelu = partial(jax.nn.gelu, approximate=False)
     
@@ -192,6 +201,7 @@ if __name__ == "__main__":
         evaluate_n_episode=args.evaluate_n_episode,
         image_obs=args.image_obs,
         image_size=args.image_size,
+        num_stack=args.num_stack,
     )
 
     trainer.setup(Experience.create_example(obs_shape, act_dim, trainer.batch_size, obs_dtype=obs_dtype))

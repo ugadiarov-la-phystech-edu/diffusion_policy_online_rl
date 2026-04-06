@@ -44,6 +44,7 @@ class OffPolicyTrainer:
         warmup_with: str = "random",  # "policy" or "random"
         image_obs: bool = False,
         image_size: int = 84,
+        num_stack: int = 1,
     ):
         self.env = env
         self.algorithm = algorithm
@@ -67,6 +68,7 @@ class OffPolicyTrainer:
         self.save_value = save_value
         self.image_obs = image_obs
         self.image_size = image_size
+        self.num_stack = num_stack
         # TODO: make EpisodeLog and Experience configurable
         # TODO: re-add done_info_keys support
         # TODO: re-add evaluation support
@@ -115,6 +117,8 @@ class OffPolicyTrainer:
         ]
         if self.image_obs:
             evaluator_cmd += ["--image_obs", "--image_size", str(self.image_size)]
+        if self.num_stack > 1:
+            evaluator_cmd += ["--num_stack", str(self.num_stack)]
         self.evaluator = subprocess.Popen(
             evaluator_cmd,
             stdin=subprocess.PIPE,
