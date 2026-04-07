@@ -16,6 +16,8 @@ dill==0.3.8
 # free-mujoco-py
 matplotlib
 scikit-learn
+opencv-python==4.9.0.80
+
 
 # Utility
 comet_ml
@@ -24,3 +26,6 @@ setproctitle
 pyyaml
 lz4
 robosuite==1.4.1
+causal_world
+omegaconf
+
