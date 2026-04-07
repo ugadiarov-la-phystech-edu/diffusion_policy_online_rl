@@ -216,6 +216,7 @@ class OffPolicyTrainer:
                     self.algorithm.save_q(self.log_path / policy_pkl_name.replace('policy', 'value'))
 
                 command = f"{sl.sample_step},{self.log_path / policy_pkl_name}\n"
+                print("Run Evaluator:", command, flush=True)
                 self.evaluator.stdin.write(command.encode())
 
             sample_keys, update_keys = iter_key_fn(sl.sample_step)
