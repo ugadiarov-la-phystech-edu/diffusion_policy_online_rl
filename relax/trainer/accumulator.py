@@ -1,3 +1,4 @@
+import time
 from collections import defaultdict
 from typing import Callable
 
@@ -61,7 +62,7 @@ class SampleLog:
 
 
 class VectorSampleLog:
-    __slots__ = ("num_envs", "sample_step", "sample_episode", "episode_return", "episode_length", "accumulator")
+    __slots__ = ("num_envs", "sample_step", "sample_episode", "episode_return", "episode_length", "accumulator", "last_sample_time", "last_sample_step")
 
     def __init__(self, num_envs: int):
         self.num_envs = num_envs
@@ -69,6 +70,8 @@ class VectorSampleLog:
         self.sample_episode = 0
         self.episode_return = np.zeros((num_envs,), dtype=np.float64)
         self.episode_length = np.zeros((num_envs,), dtype=np.int64)
+        self.last_sample_step = 0
+        self.last_sample_time = time.perf_counter()
         self.accumulator = Accumulator("sample")
 
     def add(self, reward: np.ndarray, terminated: np.ndarray, truncated: np.ndarray, info: dict):
@@ -89,6 +92,12 @@ class VectorSampleLog:
 
     def log(self, log_fn: Callable[[str, float, int], None]):
         self.accumulator.log(lambda k, v: log_fn(k, v, self.sample_step))
+        current_time = time.perf_counter()
+        fps = (self.sample_step - self.last_sample_step) / (current_time - self.last_sample_time)
+        log_fn('SPS', fps, self.sample_step)
+
+        self.last_sample_step = self.sample_step
+        self.last_sample_time = current_time
         self.accumulator.reset()
 
 class VectorFragmentSampleLog:
