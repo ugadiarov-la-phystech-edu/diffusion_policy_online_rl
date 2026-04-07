@@ -18,6 +18,7 @@ matplotlib
 scikit-learn
 
 # Utility
+comet_ml
 tqdm
 setproctitle
 pyyaml
