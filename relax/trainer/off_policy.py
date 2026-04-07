@@ -119,11 +119,17 @@ class OffPolicyTrainer:
             evaluator_cmd += ["--image_obs", "--image_size", str(self.image_size)]
         if self.num_stack > 1:
             evaluator_cmd += ["--num_stack", str(self.num_stack)]
+
+        environ = os.environ.copy()
+        evaluator_mem_fraction = os.environ.get('EVALUATOR_XLA_PYTHON_CLIENT_MEM_FRACTION', None)
+        if evaluator_mem_fraction is not None:
+            environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = evaluator_mem_fraction
+
         self.evaluator = subprocess.Popen(
             evaluator_cmd,
             stdin=subprocess.PIPE,
             bufsize=0,
-            env={'XLA_PYTHON_CLIENT_MEM_FRACTION': '0.15'},
+            env=environ,
         )
 
     def warmup(self, key: jax.Array, obs: np.ndarray):
