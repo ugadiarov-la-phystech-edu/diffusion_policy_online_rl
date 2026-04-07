@@ -21,30 +21,30 @@ from relax.utils.experience import Experience
 
 class OffPolicyTrainer:
     def __init__(
-        self,
-        env: Env,
-        algorithm: Algorithm,
-        buffer: ExperienceBuffer,
-        log_path: Path,
-        batch_size: int = 256,
-        start_step: int = 1000,
-        total_step: int = int(1e6),
-        sample_per_iteration: int = 1,
-        update_per_iteration: int = 1,
-        evaluate_env: Optional[Env] = None,
-        evaluate_every: int = 10000,
-        evaluate_n_episode: int = 20,
-        sample_log_n_episode: int = 10,
-        update_log_n_step: int = 1000,
-        done_info_keys: Tuple[str, ...] = (),
-        save_policy_every: int = 10000,
-        save_value: bool = True,
-        hparams: Optional[dict] = None,
-        policy_pkl_template: str = "policy-{sample_step}-{update_step}.pkl",
-        warmup_with: str = "random",  # "policy" or "random"
-        image_obs: bool = False,
-        image_size: int = 84,
-        num_stack: int = 1,
+            self,
+            env: Env,
+            algorithm: Algorithm,
+            buffer: ExperienceBuffer,
+            log_path: Path,
+            batch_size: int = 256,
+            start_step: int = 1000,
+            total_step: int = int(1e6),
+            sample_per_iteration: int = 1,
+            update_per_iteration: int = 1,
+            evaluate_env: Optional[Env] = None,
+            evaluate_every: int = 10000,
+            evaluate_n_episode: int = 20,
+            sample_log_n_episode: int = 10,
+            update_log_n_step: int = 1000,
+            done_info_keys: Tuple[str, ...] = (),
+            save_policy_every: int = 10000,
+            save_value: bool = True,
+            hparams: Optional[dict] = None,
+            policy_pkl_template: str = "policy-{sample_step}-{update_step}.pkl",
+            warmup_with: str = "random",  # "policy" or "random"
+            image_obs: bool = False,
+            image_size: int = 84,
+            num_stack: int = 1,
     ):
         self.env = env
         self.algorithm = algorithm
@@ -89,7 +89,7 @@ class OffPolicyTrainer:
         run_id = os.getenv('COMET_RUN_ID', None)
         mode = 'create'
         if run_id is not None:
-          mode = 'get'
+            mode = 'get'
 
         experiment = comet_ml.start(experiment_key=run_id, mode=mode)
         experiment.set_name(os.getenv('COMET_EXPERIMENT_NAME', log_path.name))
@@ -106,7 +106,8 @@ class OffPolicyTrainer:
 
         self.algorithm.save_policy_structure(self.log_path, dummy_data.obs[0])
         if self.save_value:
-            self.algorithm.save_q_structure(self.log_path, dummy_obs=dummy_data.obs[0], dummy_action=dummy_data.action[0])
+            self.algorithm.save_q_structure(self.log_path, dummy_obs=dummy_data.obs[0],
+                                            dummy_action=dummy_data.action[0])
         evaluator_cmd = [
             sys.executable,
             "-m", "relax.trainer.evaluator",
@@ -204,6 +205,19 @@ class OffPolicyTrainer:
 
         self.progress.unpause()
         while sl.sample_step <= self.total_step:
+            if sl.sample_step == 0 or self.save_policy_interval.check(sl.sample_step):
+                policy_pkl_name = self.policy_pkl_template.format(
+                    sample_step=sl.sample_step,
+                    update_step=ul.update_step,
+                )
+                self.algorithm.save_policy(self.log_path / policy_pkl_name)
+
+                if self.save_value:
+                    self.algorithm.save_q(self.log_path / policy_pkl_name.replace('policy', 'value'))
+
+                command = f"{sl.sample_step},{self.log_path / policy_pkl_name}\n"
+                self.evaluator.stdin.write(command.encode())
+
             sample_keys, update_keys = iter_key_fn(sl.sample_step)
 
             for i in range(self.sample_per_iteration):
@@ -212,26 +226,12 @@ class OffPolicyTrainer:
             for i in range(self.update_per_iteration):
                 self.update(update_keys[i])
 
-            if self.save_policy_interval.check(sl.sample_step):
-                policy_pkl_name = self.policy_pkl_template.format(
-                    sample_step=sl.sample_step,
-                    update_step=ul.update_step,
-                )
-                self.algorithm.save_policy(self.log_path / policy_pkl_name)
-                
-                if self.save_value:
-                    self.algorithm.save_q(self.log_path / policy_pkl_name.replace('policy', 'value'))
-                
-
-                command = f"{sl.sample_step},{self.log_path / policy_pkl_name}\n"
-                self.evaluator.stdin.write(command.encode())
-
     def add_scalar(self, tag: str, value: float, step: int):
         self.last_metrics[tag] = value
         self.experiment.log_metric(tag, value, step=step)
         self.logger.add_scalar(tag, value, step)
         self.logger.flush()
-        
+
     def add_hist(self, info_hist, step):
         for tag, value in info_hist.items():
             self.logger.add_histogram(tag, np.array(value), step)
@@ -259,7 +259,9 @@ class OffPolicyTrainer:
         self.evaluator.stdin.close()
         self.evaluator.wait()
 
-def create_iter_key_fn(key: jax.Array, sample_per_iteration: int, update_per_iteration: int) -> Callable[[int], Tuple[jax.Array, jax.Array]]:
+
+def create_iter_key_fn(key: jax.Array, sample_per_iteration: int, update_per_iteration: int) -> Callable[
+    [int], Tuple[jax.Array, jax.Array]]:
     def iter_key_fn(step: int):
         iter_key = jax.random.fold_in(key, step)
         sample_key, update_key = jax.random.split(iter_key)
