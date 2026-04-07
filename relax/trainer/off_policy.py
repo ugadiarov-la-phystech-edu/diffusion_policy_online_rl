@@ -123,6 +123,7 @@ class OffPolicyTrainer:
             evaluator_cmd,
             stdin=subprocess.PIPE,
             bufsize=0,
+            env={'XLA_PYTHON_CLIENT_MEM_FRACTION': '0.15'},
         )
 
     def warmup(self, key: jax.Array, obs: np.ndarray):
