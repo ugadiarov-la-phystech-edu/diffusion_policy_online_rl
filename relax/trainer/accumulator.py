@@ -32,13 +32,15 @@ class Accumulator:
             log_fn(key, value)
 
 class SampleLog:
-    __slots__ = ("sample_step", "sample_episode", "episode_return", "episode_length", "accumulator")
+    __slots__ = ("sample_step", "sample_episode", "episode_return", "episode_length", "accumulator", "last_sample_time", "last_sample_step")
 
     def __init__(self):
         self.sample_step = 0
         self.sample_episode = 0
         self.episode_return = 0.0
         self.episode_length = 0
+        self.last_sample_step = 0
+        self.last_sample_time = time.perf_counter()
         self.accumulator = Accumulator("sample")
 
     def add(self, reward: float, terminated: bool, truncated: bool, info: dict):
@@ -58,6 +60,12 @@ class SampleLog:
 
     def log(self, log_fn: Callable[[str, float, int], None]):
         self.accumulator.log(lambda k, v: log_fn(k, v, self.sample_step))
+        current_time = time.perf_counter()
+        fps = (self.sample_step - self.last_sample_step) / (current_time - self.last_sample_time)
+        log_fn('SPS', fps, self.sample_step)
+
+        self.last_sample_step = self.sample_step
+        self.last_sample_time = current_time
         self.accumulator.reset()
 
 
@@ -101,7 +109,7 @@ class VectorSampleLog:
         self.accumulator.reset()
 
 class VectorFragmentSampleLog:
-    __slots__ = ("num_envs", "fragment_length", "sample_step", "sample_episode", "episode_return", "episode_length", "accumulator")
+    __slots__ = ("num_envs", "fragment_length", "sample_step", "sample_episode", "episode_return", "episode_length", "accumulator", "last_sample_time", "last_sample_step")
 
     def __init__(self, num_envs: int, fragment_length: int):
         self.num_envs = num_envs
@@ -110,6 +118,8 @@ class VectorFragmentSampleLog:
         self.sample_episode = 0
         self.episode_return = np.zeros((num_envs,), dtype=np.float64)
         self.episode_length = np.zeros((num_envs,), dtype=np.int64)
+        self.last_sample_step = 0
+        self.last_sample_time = time.perf_counter()
         self.accumulator = Accumulator("sample")
 
     def add(self, reward: np.ndarray, terminated: np.ndarray, truncated: np.ndarray, info: dict):
@@ -122,6 +132,12 @@ class VectorFragmentSampleLog:
 
     def log(self, log_fn: Callable[[str, float, int], None]):
         self.accumulator.log(lambda k, v: log_fn(k, v, self.sample_step))
+        current_time = time.perf_counter()
+        fps = (self.sample_step - self.last_sample_step) / (current_time - self.last_sample_time)
+        log_fn('SPS', fps, self.sample_step)
+
+        self.last_sample_step = self.sample_step
+        self.last_sample_time = current_time
         self.accumulator.reset()
 
 @njit([(nt.float64[:, ::1], nt.boolean[:, ::1], nt.boolean[:, ::1], nt.float64[::1], nt.int64[::1], nt.int64, nt.int64)], cache=True)
