@@ -62,6 +62,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_policy_every", type=int, default=10000)
     parser.add_argument("--evaluate_n_episode", type=int, default=20)
     parser.add_argument("--num_stack", type=int, default=1)
+    parser.add_argument("--update_per_iteration", type=int, default=1)
     args = parser.parse_args()
 
     if args.debug:
@@ -192,6 +193,7 @@ if __name__ == "__main__":
         start_step=args.start_step,
         total_step=args.total_step,
         sample_per_iteration=1,
+        update_per_iteration=args.update_per_iteration,
         evaluate_env=eval_env,
         save_policy_every=args.save_policy_every,
         warmup_with="random",
