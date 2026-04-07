@@ -10,6 +10,7 @@ from gymnasium.spaces import Box
 import numpy as np
 
 from relax.env.vector.base import VectorEnv
+import relax.env.register_env
 from relax.spinlock import spinlock_server_wait, spinlock_server_wait_mask, spinlock_server_notify, spinlock_server_notify_mask
 
 WORKER_PATH = Path(__file__).parent / "worker2.py"
@@ -19,7 +20,11 @@ class ProcessVectorEnv(VectorEnv):
         self.num_envs = num_envs
 
         render_mode = "rgb_array" if image_obs else None
-        dummy_env = gymnasium.make(name, render_mode=render_mode)
+        try:
+            dummy_env = gymnasium.make(name, render_mode=render_mode, seed=seed)
+        except TypeError as e:
+            dummy_env = gymnasium.make(name, render_mode=render_mode)
+
         if image_obs:
             from relax.env import _apply_image_wrappers
             dummy_env = _apply_image_wrappers(dummy_env, image_size, num_stack)

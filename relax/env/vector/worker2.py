@@ -10,6 +10,7 @@ import numpy as np
 import setproctitle
 from relax.prctl import set_client_pdeathsig
 from relax.spinlock import spinlock_client_wait, spinlock_client_notify
+import relax.env.register_env
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -30,7 +31,11 @@ def main():
     args = parse_args()
 
     render_mode = "rgb_array" if args.image_obs else None
-    env = gymnasium.make(args.env, render_mode=render_mode)
+    try:
+        env = gymnasium.make(args.env, render_mode=render_mode, seed=args.seed)
+    except TypeError as e:
+        env = gymnasium.make(args.env, render_mode=render_mode)
+
     if args.image_obs:
         from relax.env import _apply_image_wrappers
         env = _apply_image_wrappers(env, args.image_size, args.num_stack)

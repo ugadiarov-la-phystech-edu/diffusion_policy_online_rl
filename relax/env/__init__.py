@@ -8,6 +8,7 @@ from gymnasium.error import DependencyNotInstalled
 from gymnasium.spaces import Box
 
 from relax.env.vector import VectorEnv, SerialVectorEnv, GymProcessVectorEnv, PipeProcessVectorEnv, SpinlockProcessVectorEnv, FutexProcessVectorEnv
+import relax.env.register_env
 
 class RelaxWrapper(Wrapper):
     def __init__(self, env: Env, action_seed: int = 0):
@@ -63,14 +64,20 @@ class RelaxWrapper(Wrapper):
 
 def _apply_image_wrappers(env, image_size: int = 84, num_stack: int = 1):
     from gymnasium.wrappers import AddRenderObservation, ResizeObservation
-    env = AddRenderObservation(env, render_only=True)
+    if len(env.observation_space.shape) != 3:
+        env = AddRenderObservation(env, render_only=True)
+
     env = ResizeObservation(env, shape=(image_size, image_size))
     env = FrameStack(env, num_stack=num_stack)
     return env
 
 def create_env(name: str, seed: int, action_seed: int = 0, image_obs: bool = False, image_size: int = 84, num_stack: int = 1,):
     render_mode = "rgb_array" if image_obs else None
-    env = make(name, render_mode=render_mode)
+    try:
+        env = gymnasium.make(name, render_mode=render_mode, seed=seed)
+    except TypeError as e:
+        env = gymnasium.make(name, render_mode=render_mode)
+
     if image_obs:
         env = _apply_image_wrappers(env, image_size, num_stack)
     env.reset(seed=seed)
