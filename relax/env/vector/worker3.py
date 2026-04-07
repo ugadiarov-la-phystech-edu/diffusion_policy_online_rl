@@ -61,6 +61,7 @@ def main():
     reward = initialize_shm(descr["reward"], "r+")
     terminated = initialize_shm(descr["terminated"], "r+")
     truncated = initialize_shm(descr["truncated"], "r+")
+    success = initialize_shm(descr["success"], "r+")
     signal = initialize_shm(descr["signal"], "r+")
     signal_pointer = signal.ctypes.data
 
@@ -76,11 +77,12 @@ def main():
             command = last & 0b11
             if command == 0b01:
                 for i, env in zip(indices, envs):
-                    _obs2, _reward, _terminated, _truncated, _ = env.step(action[i])
+                    _obs2, _reward, _terminated, _truncated, info = env.step(action[i])
                     obs2[i] = _obs2
                     reward[i] = _reward
                     terminated[i] = _terminated
                     truncated[i] = _truncated
+                    success[i] = bool(info.get("success", False))
                     if _terminated or _truncated:
                         obs[i], _ = env.reset()
                     else:

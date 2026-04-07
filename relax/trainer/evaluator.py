@@ -18,20 +18,22 @@ from relax.utils.persistence import PersistFunction
 def evaluate(env, policy_fn, policy_params, num_episodes):
     ep_len_list = []
     ep_ret_list = []
+    success_list = []
     for _ in range(num_episodes):
         obs, _ = env.reset()
         ep_len = 0
         ep_ret = 0.0
         while True:
             act = policy_fn(policy_params, obs)
-            obs, reward, terminated, truncated, _ = env.step(act)
+            obs, reward, terminated, truncated, info = env.step(act)
             ep_len += 1
             ep_ret += reward
             if terminated or truncated:
+                success_list.append(int(info.get("success", 0)))
                 break
         ep_len_list.append(ep_len)
         ep_ret_list.append(ep_ret)
-    return ep_len_list, ep_ret_list
+    return ep_len_list, ep_ret_list, success_list
 
 class Logger(object):
 
@@ -39,12 +41,12 @@ class Logger(object):
 		self.path = os.path.join(log_dir, 'log.csv')
 		with open(self.path, mode='w', newline='') as f:
 			writer = csv.writer(f)
-			writer.writerow(['step', 'avg_ret', 'std_ret'])
+			writer.writerow(['step', 'avg_ret', 'std_ret', 'avg_success', 'std_success', 'avg_length', 'std_length'])
 
-	def log(self, step, avg_ret, std_ret):
+	def log(self, step, avg_ret, std_ret, avg_success, std_success, avg_length, std_length):
 		with open(self.path, mode='a', newline='') as f:
 			writer = csv.writer(f)
-			writer.writerow([step, avg_ret, std_ret])
+			writer.writerow([step, avg_ret, std_ret, avg_success, std_success, avg_length, std_length])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -76,13 +78,14 @@ if __name__ == "__main__":
         with open(policy_path, "rb") as f:
             policy_params = pickle.load(f)
 
-        ep_len_list, ep_ret_list = evaluate(env, policy_fn, policy_params, args.num_episodes)
+        ep_len_list, ep_ret_list, success_list = evaluate(env, policy_fn, policy_params, args.num_episodes)
 
         ep_len = np.array(ep_len_list)
         ep_ret = np.array(ep_ret_list)
+        success = np.array(success_list)
         # logger.add_scalar("evaluate/episode_length", ep_len_mean.mean(), step)
         # logger.add_scalar("evaluate/episode_return", ep_ret_mean.mean(), step)
         # # logger.add_histogram("evaluate/episode_length", ep_len_mean, step)
         # # logger.add_histogram("evaluate/episode_return", ep_ret_mean, step)
         # logger.flush()
-        logger.log(step, ep_ret.mean(), ep_ret.std())
+        logger.log(step, ep_ret.mean(), ep_ret.std(), success.mean(), success.std(), ep_len.mean(), ep_len.std())

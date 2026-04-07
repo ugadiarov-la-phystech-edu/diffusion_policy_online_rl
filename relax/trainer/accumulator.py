@@ -32,13 +32,14 @@ class Accumulator:
             log_fn(key, value)
 
 class SampleLog:
-    __slots__ = ("sample_step", "sample_episode", "episode_return", "episode_length", "accumulator", "last_sample_time", "last_sample_step")
+    __slots__ = ("sample_step", "sample_episode", "episode_return", "episode_length", "success", "accumulator", "last_sample_time", "last_sample_step")
 
     def __init__(self):
         self.sample_step = 0
         self.sample_episode = 0
         self.episode_return = 0.0
         self.episode_length = 0
+        self.success = 0
         self.last_sample_step = 0
         self.last_sample_time = time.perf_counter()
         self.accumulator = Accumulator("sample")
@@ -47,14 +48,17 @@ class SampleLog:
         self.episode_return += reward
         self.episode_length += 1
         self.sample_step += 1
+        self.success = int(info["success"])
 
         done = terminated or truncated
         if done:
             self.sample_episode += 1
             self.accumulator.add("episode_return", float(self.episode_return))
             self.accumulator.add("episode_length", self.episode_length)
+            self.accumulator.add("success", self.success)
             self.episode_return = 0.0
             self.episode_length = 0
+            self.success = 0
 
         return done
 
@@ -70,7 +74,7 @@ class SampleLog:
 
 
 class VectorSampleLog:
-    __slots__ = ("num_envs", "sample_step", "sample_episode", "episode_return", "episode_length", "accumulator", "last_sample_time", "last_sample_step")
+    __slots__ = ("num_envs", "sample_step", "sample_episode", "episode_return", "episode_length", "success", "accumulator", "last_sample_time", "last_sample_step")
 
     def __init__(self, num_envs: int):
         self.num_envs = num_envs
@@ -78,6 +82,7 @@ class VectorSampleLog:
         self.sample_episode = 0
         self.episode_return = np.zeros((num_envs,), dtype=np.float64)
         self.episode_length = np.zeros((num_envs,), dtype=np.int64)
+        self.success = np.zeros((num_envs,), dtype=np.int64)
         self.last_sample_step = 0
         self.last_sample_time = time.perf_counter()
         self.accumulator = Accumulator("sample")
@@ -86,6 +91,7 @@ class VectorSampleLog:
         self.episode_return += reward
         self.episode_length += 1
         self.sample_step += self.num_envs
+        self.success[:] = info["success"].astype(np.int64)
 
         done = terminated | truncated
         done_count = np.count_nonzero(done)
@@ -93,6 +99,7 @@ class VectorSampleLog:
         self.sample_episode += done_count
         self.accumulator.add_vec("episode_return", self.episode_return[done].tolist())
         self.accumulator.add_vec("episode_length", self.episode_length[done].tolist())
+        self.accumulator.add_vec("success", self.success[done].tolist())
         self.episode_return[done] = 0.0
         self.episode_length[done] = 0
 
@@ -109,7 +116,7 @@ class VectorSampleLog:
         self.accumulator.reset()
 
 class VectorFragmentSampleLog:
-    __slots__ = ("num_envs", "fragment_length", "sample_step", "sample_episode", "episode_return", "episode_length", "accumulator", "last_sample_time", "last_sample_step")
+    __slots__ = ("num_envs", "fragment_length", "sample_step", "sample_episode", "episode_return", "episode_length", "success", "accumulator", "last_sample_time", "last_sample_step")
 
     def __init__(self, num_envs: int, fragment_length: int):
         self.num_envs = num_envs
@@ -118,16 +125,20 @@ class VectorFragmentSampleLog:
         self.sample_episode = 0
         self.episode_return = np.zeros((num_envs,), dtype=np.float64)
         self.episode_length = np.zeros((num_envs,), dtype=np.int64)
+        self.success = np.zeros((num_envs,), dtype=np.int64)
         self.last_sample_step = 0
         self.last_sample_time = time.perf_counter()
         self.accumulator = Accumulator("sample")
 
     def add(self, reward: np.ndarray, terminated: np.ndarray, truncated: np.ndarray, info: dict):
-        done_count, complete_episode_return, complete_episode_length = process_fragment(reward, terminated, truncated, self.episode_return, self.episode_length, self.num_envs, self.fragment_length)
+        done_count, done, complete_episode_return, complete_episode_length = process_fragment(reward, terminated, truncated, self.episode_return, self.episode_length, self.num_envs, self.fragment_length)
         self.sample_step += self.num_envs * self.fragment_length
         self.sample_episode += done_count
         self.accumulator.add_vec("episode_return", complete_episode_return.tolist())
         self.accumulator.add_vec("episode_length", complete_episode_length.tolist())
+        if done_count > 0:
+            self.accumulator.add_vec("success", self.success[done].tolist())
+
         return done_count > 0
 
     def log(self, log_fn: Callable[[str, float, int], None]):
@@ -170,7 +181,7 @@ def process_fragment(reward: np.ndarray, terminated: np.ndarray, truncated: np.n
         episode_return += reward.sum(axis=-1)
         episode_length += fragment_length
 
-    return done_count, complete_episode_return, complete_episode_length
+    return done_count, done, complete_episode_return, complete_episode_length
 
 class UpdateLog:
     __slots__ = ("update_step", "accumulator")

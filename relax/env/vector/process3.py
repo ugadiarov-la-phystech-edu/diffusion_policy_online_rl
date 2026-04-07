@@ -84,6 +84,7 @@ class ProcessVectorEnv(VectorEnv):
         self.reward_shm, self.reward, descr["reward"] = make_shared_memory((self.num_envs,), np.float64)
         self.terminated_shm, self.terminated, descr["terminated"] = make_shared_memory((self.num_envs,), np.bool_)
         self.truncated_shm, self.truncated, descr["truncated"] = make_shared_memory((self.num_envs,), np.bool_)
+        self.success_shm, self.success, descr["success"] = make_shared_memory((self.num_envs,), np.bool_)
         self.signal_shm, self.signal, descr["signal"] = make_shared_memory((2,), np.uint32)
         self.signal[:] = 0
         self.signal_pointer = self.signal.ctypes.data
@@ -120,7 +121,7 @@ class ProcessVectorEnv(VectorEnv):
         self.action[:] = action
         self._notify(0b01)
         self._wait()
-        return self.obs2.copy(), self.reward.copy(), self.terminated.copy(), self.truncated.copy(), {}
+        return self.obs2.copy(), self.reward.copy(), self.terminated.copy(), self.truncated.copy(), {'success': self.success.copy()}
 
     def close(self):
         self._notify(0b10)
