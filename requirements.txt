@@ -11,7 +11,7 @@ ipdb
 
 # Used by environment
 # mujoco==3.3.7
-gymnasium[mujoco]==0.29.0
+gymnasium[mujoco]==0.29.1
 dill==0.3.8
 # free-mujoco-py
 matplotlib
