@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from typing import NamedTuple, Tuple
 
 import jax, jax.numpy as jnp
@@ -7,6 +9,7 @@ import haiku as hk
 from relax.algorithm.base import Algorithm
 from relax.network.sac import SACNet, SACParams
 from relax.utils.experience import Experience
+from relax.utils.persistence import make_persist
 from relax.utils.typing_utils import Metric
 
 
@@ -115,4 +118,17 @@ class SAC(Algorithm):
             }
             return state, info
 
-        self._implement_common_behavior(stateless_update, self.agent.get_action, self.agent.get_deterministic_action)
+        self._implement_common_behavior(stateless_update, self.agent.get_action, self.agent.get_deterministic_action,
+                                        stateless_get_value=self.agent.q)
+
+    def save_q_structure(self, root: os.PathLike, dummy_obs: jax.Array, dummy_action: jax.Array) -> None:
+        root = Path(root)
+
+        key = jax.random.key(0)
+        deterministic = make_persist(self._get_value._fun)(self.get_value_params()[0], dummy_obs, dummy_action)  # []
+
+        deterministic.save(root / "q_func.pkl")
+        deterministic.save_info(root / "q_func.txt")
+
+    def get_value_params(self):
+        return self.state.params.q1, self.state.params.q2
