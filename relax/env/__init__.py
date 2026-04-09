@@ -1,12 +1,14 @@
 from collections import deque
-from typing import Union
+from typing import Union, Callable
 
 import numpy as np
 import gymnasium
 from gymnasium import Env, Wrapper, make
 from gymnasium.error import DependencyNotInstalled
+from gymnasium import spaces
 from gymnasium.spaces import Box
 
+from relax.env.maniskll_env import ManiSkillVectorEnv, ManiSkillEnv
 from relax.env.vector import VectorEnv, SerialVectorEnv, GymProcessVectorEnv, PipeProcessVectorEnv, SpinlockProcessVectorEnv, FutexProcessVectorEnv
 import relax.env.register_env
 
@@ -63,7 +65,7 @@ class RelaxWrapper(Wrapper):
         return obs, reward, terminated, truncated, info
 
 def _apply_image_wrappers(env, image_size: int = 84, num_stack: int = 1):
-    from gymnasium.wrappers import AddRenderObservation, ResizeObservation
+    from gymnasium.wrappers import ResizeObservation
     if len(env.observation_space.shape) != 3:
         env = AddRenderObservation(env, render_only=True)
 
@@ -73,10 +75,13 @@ def _apply_image_wrappers(env, image_size: int = 84, num_stack: int = 1):
 
 def create_env(name: str, seed: int, action_seed: int = 0, image_obs: bool = False, image_size: int = 84, num_stack: int = 1,):
     render_mode = "rgb_array" if image_obs else None
-    try:
-        env = gymnasium.make(name, render_mode=render_mode, seed=seed)
-    except TypeError as e:
-        env = gymnasium.make(name, render_mode=render_mode)
+    if name == 'PushCube-v1':
+        env = ManiSkillEnv(name)
+    else:
+        try:
+            env = gymnasium.make(name, render_mode=render_mode, seed=seed)
+        except TypeError as e:
+            env = gymnasium.make(name, render_mode=render_mode)
 
     if image_obs:
         env = _apply_image_wrappers(env, image_size, num_stack)
@@ -87,14 +92,20 @@ def create_env(name: str, seed: int, action_seed: int = 0, image_obs: bool = Fal
 
 def create_vector_env(name: str, num_envs: int, seed: int, action_seed: int = 0, mode: str = "serial",
                       image_obs: bool = False, image_size: int = 84, num_stack: int = 1, **kwargs):
-    Impl = {
-        "serial": SerialVectorEnv,
-        "gym": GymProcessVectorEnv,
-        "pipe": PipeProcessVectorEnv,
-        "spinlock": SpinlockProcessVectorEnv,
-        "futex": FutexProcessVectorEnv,
-    }[mode]
-    env = Impl(name, num_envs, seed, image_obs=image_obs, image_size=image_size, num_stack=num_stack, **kwargs)
+
+    if name == 'PushCube-v1':
+        assert image_obs, "image_obs requires image_obs=True"
+        env = ManiSkillVectorEnv(env=name, num_envs=num_envs, seed=seed, image_size=image_size, num_stack=num_stack, **kwargs)
+    else:
+        Impl = {
+            "serial": SerialVectorEnv,
+            "gym": GymProcessVectorEnv,
+            "pipe": PipeProcessVectorEnv,
+            "spinlock": SpinlockProcessVectorEnv,
+            "futex": FutexProcessVectorEnv,
+        }[mode]
+        env = Impl(name, num_envs, seed, image_obs=image_obs, image_size=image_size, num_stack=num_stack, **kwargs)
+
     env = RelaxWrapper(env, action_seed)
     return env, env.obs_shape, env.act_dim
 
@@ -285,3 +296,157 @@ class FrameStack(gymnasium.ObservationWrapper, gymnasium.utils.RecordConstructor
         [self.frames.append(obs) for _ in range(self.num_stack)]
 
         return self.observation(None), info
+
+
+class TransformObservation(gymnasium.ObservationWrapper, gymnasium.utils.RecordConstructorArgs):
+    """Applies a function to the ``observation`` received from the environment's :meth:`Env.reset` and :meth:`Env.step` that is passed back to the user.
+
+    The function :attr:`func` will be applied to all observations.
+    If the observations from :attr:`func` are outside the bounds of the ``env``'s observation space, provide an updated :attr:`observation_space`.
+
+    A vector version of the wrapper exists :class:`gymnasium.wrappers.vector.TransformObservation`.
+
+    Example:
+        >>> import gymnasium as gym
+        >>> from gymnasium.wrappers import TransformObservation
+        >>> import numpy as np
+        >>> np.random.seed(0)
+        >>> env = gym.make("CartPole-v1")
+        >>> env.reset(seed=42)
+        (array([ 0.0273956 , -0.00611216,  0.03585979,  0.0197368 ], dtype=float32), {})
+        >>> env = gym.make("CartPole-v1")
+        >>> env = TransformObservation(env, lambda obs: obs + 0.1 * np.random.random(obs.shape), env.observation_space)
+        >>> env.reset(seed=42)
+        (array([0.08227695, 0.06540678, 0.09613613, 0.07422512]), {})
+
+    Change logs:
+     * v0.15.4 - Initially added
+     * v1.0.0 - Add requirement of ``observation_space``
+    """
+
+    def __init__(self, env: gymnasium.Env, func: Callable, observation_space: gymnasium.Space = None, ):
+        """Constructor for the transform observation wrapper.
+
+        Args:
+            env: The environment to wrap
+            func: A function that will transform an observation. If this transformed observation is outside the observation space of ``env.observation_space`` then provide an `observation_space`.
+            observation_space: The observation spaces of the wrapper, if None, then it is assumed the same as ``env.observation_space``.
+        """
+        gymnasium.utils.RecordConstructorArgs.__init__(
+            self, func=func, observation_space=observation_space
+        )
+        gymnasium.ObservationWrapper.__init__(self, env)
+
+        if observation_space is not None:
+            self.observation_space = observation_space
+
+        self.func = func
+
+    def observation(self, observation):
+        """Apply function to the observation."""
+        return self.func(observation)
+
+
+class AddRenderObservation(TransformObservation, gymnasium.utils.RecordConstructorArgs, ):
+    """Includes the rendered observations in the environment's observations.
+
+    Notes:
+       This was previously called ``PixelObservationWrapper``.
+
+    No vector version of the wrapper exists.
+
+    Example - Replace the observation with the rendered image:
+        >>> env = gym.make("CartPole-v1", render_mode="rgb_array")
+        >>> env = AddRenderObservation(env, render_only=True)
+        >>> env.observation_space
+        Box(0, 255, (400, 600, 3), uint8)
+        >>> obs, _ = env.reset(seed=123)
+        >>> image = env.render()
+        >>> np.all(obs == image)
+        np.True_
+        >>> obs, *_ = env.step(env.action_space.sample())
+        >>> image = env.render()
+        >>> np.all(obs == image)
+        np.True_
+
+    Example - Add the rendered image to the original observation as a dictionary item:
+        >>> env = gym.make("CartPole-v1", render_mode="rgb_array")
+        >>> env = AddRenderObservation(env, render_only=False)
+        >>> env.observation_space
+        Dict('pixels': Box(0, 255, (400, 600, 3), uint8), 'state': Box([-4.8               -inf -0.41887903        -inf], [4.8               inf 0.41887903        inf], (4,), float32))
+        >>> obs, info = env.reset(seed=123)
+        >>> obs.keys()
+        dict_keys(['state', 'pixels'])
+        >>> obs["state"]
+        array([ 0.01823519, -0.0446179 , -0.02796401, -0.03156282], dtype=float32)
+        >>> np.all(obs["pixels"] == env.render())
+        np.True_
+        >>> obs, reward, terminates, truncates, info = env.step(env.action_space.sample())
+        >>> image = env.render()
+        >>> np.all(obs["pixels"] == image)
+        np.True_
+
+    Change logs:
+     * v0.15.0 - Initially added as ``PixelObservationWrapper``
+     * v1.0.0 - Renamed to ``AddRenderObservation``
+    """
+
+    def __init__(
+            self,
+            env: gymnasium.Env,
+            render_only: bool = True,
+            render_key: str = "pixels",
+            obs_key: str = "state",
+    ):
+        """Constructor of the add render observation wrapper.
+
+        Args:
+            env: The environment to wrap.
+            render_only (bool): If ``True`` (default), the original observation returned
+                by the wrapped environment will be discarded, and a dictionary
+                observation will only include pixels. If ``False``, the
+                observation dictionary will contain both the original
+                observations and the pixel observations.
+            render_key: Optional custom string specifying the pixel key. Defaults to "pixels"
+            obs_key: Optional custom string specifying the obs key. Defaults to "state"
+        """
+        gymnasium.utils.RecordConstructorArgs.__init__(
+            self,
+            pixels_only=render_only,
+            pixels_key=render_key,
+            obs_key=obs_key,
+        )
+
+        assert env.render_mode is not None and env.render_mode != "human"
+        env.reset()
+        pixels = env.render()
+        assert pixels is not None and isinstance(pixels, np.ndarray)
+        pixel_space = spaces.Box(low=0, high=255, shape=pixels.shape, dtype=np.uint8)
+
+        if render_only:
+            obs_space = pixel_space
+            TransformObservation.__init__(
+                self, env=env, func=lambda _: self.render(), observation_space=obs_space
+            )
+        elif isinstance(env.observation_space, spaces.Dict):
+            assert render_key not in env.observation_space.spaces.keys()
+
+            obs_space = spaces.Dict(
+                {render_key: pixel_space, **env.observation_space.spaces}
+            )
+            TransformObservation.__init__(
+                self,
+                env=env,
+                func=lambda obs: {render_key: self.render(), **obs},
+                observation_space=obs_space,
+            )
+        else:
+            obs_space = spaces.Dict(
+                {obs_key: env.observation_space, render_key: pixel_space}
+            )
+            TransformObservation.__init__(
+                self,
+                env=env,
+                func=lambda obs: {obs_key: obs, render_key: self.render()},
+                observation_space=obs_space,
+            )

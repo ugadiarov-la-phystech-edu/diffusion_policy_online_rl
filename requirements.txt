@@ -11,7 +11,7 @@ ipdb
 
 # Used by environment
 # mujoco==3.3.7
-gymnasium[mujoco]==1.0.0
+gymnasium[mujoco]==0.29.0
 dill==0.3.8
 # free-mujoco-py
 matplotlib
@@ -28,4 +28,4 @@ lz4
 robosuite==1.4.1
 causal_world
 omegaconf
-
+mani_skill==3.0.0b22
